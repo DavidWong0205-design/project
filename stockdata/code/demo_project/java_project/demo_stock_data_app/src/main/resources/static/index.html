@@ -1,0 +1,1375 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Demo Stock Frontend</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; margin: 0; background: #eef2f7; color: #111827; }
+    h1 { margin: 0; font-size: 20px; }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 0;
+      padding: 8px;
+      background: #ffffff;
+      border-radius: 0;
+    }
+    input, button, select { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; }
+    button { background: #111827; color: #ffffff; cursor: pointer; }
+    .dashboard {
+      display: grid;
+      grid-template-columns: minmax(0, 80fr) minmax(260px, 20fr);
+      gap: 0;
+      align-items: stretch;
+      height: calc(100vh - 52px);
+      min-height: 520px;
+    }
+    .panel {
+      background: #ffffff;
+      border-radius: 0;
+      overflow: hidden;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-title {
+      padding: 8px 10px;
+      font-size: 14px;
+      font-weight: 700;
+      border-bottom: 1px solid #e5e7eb;
+      background: #f8fafc;
+    }
+    .left-panel { display: flex; flex-direction: column; }
+    .left-panel .panel-title { display: none; }
+    .hm-wrap { flex: 1; min-height: 0; }
+    #hmChart {
+      width: 100%;
+      height: 100%;
+      min-height: 360px;
+    }
+    .right-panel {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 10px;
+      min-height: 0;
+    }
+    .card-body { flex: 1; min-height: 0; }
+    #trendChart { width: 100%; height: 100%; min-height: 280px; position: relative; }
+    .trend-empty {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #6b7280;
+      font-size: 14px;
+    }
+    .d3-axis path,
+    .d3-axis line {
+      stroke: #9ca3af;
+      shape-rendering: crispEdges;
+    }
+    .d3-axis text {
+      fill: #6b7280;
+      font-size: 11px;
+    }
+    .d3-tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(17, 24, 39, 0.92);
+      color: #ffffff;
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.3;
+      transform: translate(-50%, -115%);
+      white-space: nowrap;
+      z-index: 3;
+      display: none;
+    }
+    .trend-status {
+      position: absolute;
+      right: 8px;
+      top: 6px;
+      font-size: 11px;
+      color: #64748b;
+      pointer-events: none;
+      z-index: 2;
+    }
+    #marketInfo { padding: 12px; overflow: auto; height: 100%; }
+    .stock-head { display: flex; align-items: center; gap: 10px; }
+    .stock-logo {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      object-fit: contain;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      flex: 0 0 38px;
+    }
+    .stock-name { font-size: 18px; font-weight: 800; line-height: 1.2; color: #111827; }
+    .stock-company { margin-top: 6px; font-size: 14px; color: #1f2937; font-weight: 600; }
+    .stock-meta { margin-top: 8px; font-size: 13px; color: #4b5563; }
+    .stock-price-row {
+      margin-top: 12px;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .stock-price { font-size: 28px; font-weight: 800; color: #111827; }
+    .stock-change, .stock-change-pct { font-size: 16px; font-weight: 700; }
+    .up { color: #16a34a; }
+    .down { color: #dc2626; }
+    .flat { color: #6b7280; }
+  </style>
+</head>
+<body>
+
+  <div class="toolbar">
+    <a href="/index.html"><img src="/img/home.png" id="homeIcon" style="width:32px;height:32px;margin-right:8px;cursor:pointer;vertical-align:middle;" alt="Home" /></a>
+    <h1>Market Heatmap Dashboard</h1>
+    <input id="mainSymbol" value="AAPL" placeholder="Symbol" />
+    <button id="updateBtn">Update</button>
+    <label for="groupMode">Grouping:</label>
+    <select id="groupMode" onchange="rerenderHeatmap()">
+      <option value="sector" selected>Sector</option>
+      <option value="none">No group</option>
+    </select>
+  </div>
+
+
+
+  <div class="dashboard">
+    <section class="panel left-panel" id="heatmapPanel" style="display:flex;">
+      <div class="panel-title">Heatmap</div>
+      <div class="hm-wrap">
+        <div id="hmChart"></div>
+      </div>
+    </section>
+    <section class="panel left-panel" id="klineChartPanel" style="display:none;">
+      <div class="panel-title">K線圖</div>
+      <div class="hm-wrap">
+        <div id="klineChart"></div>
+      </div>
+    </section>
+    <section class="right-panel">
+      <article class="panel">
+        <div class="panel-title">Market Info</div>
+        <div class="card-body" id="marketInfo"></div>
+      </article>
+      <article class="panel">
+        <div class="panel-title">Stock Trend</div>
+        <div style="padding: 8px 10px 0 10px; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; font-size: 14px; min-width:0;">
+          <label for="trendRange" style="font-size:13px;">Range:</label>
+          <select id="trendRange" onchange="refreshRightPanel()" style="font-size:13px; padding:2px 4px; height:24px; min-width:48px; max-width:70px;">
+            <option value="8d_1m">1m</option>
+            <option value="60d_5m">5m</option>
+            <option value="60d_15m">15m</option>
+            <option value="60d_30m">30m</option>
+            <option value="60d_90m">90m</option>
+            <option value="730d_1h" selected>1h</option>
+            <option value="max_1d">1d</option>
+            <option value="max_1mo">1mo</option>
+            <option value="max_3mo">3mo</option>
+          </select>
+          <label for="trendTimezone" style="font-size:13px; margin-left:6px;">TZ:</label>
+          <select id="trendTimezone" onchange="renderTrendD3()" style="font-size:13px; padding:2px 4px; height:24px; min-width:70px; max-width:110px;">
+            <option value="us" selected>US (ET)</option>
+            <option value="hk">Hong Kong (HKT)</option>
+          </select>
+        </div>
+        <div class="card-body">
+          <div id="trendChart"></div>
+        </div>
+      </article>
+    </section>
+  </div>
+
+  <pre id="hmOut" style="display:none; margin-top:8px;"></pre>
+
+  <!-- 全螢幕K線圖容器，預設隱藏 -->
+  <div id="fullscreenChart" style="display:none; position:fixed; left:0; top:0; width:100vw; height:100vh; background:#fff; z-index:9999;">
+    <button id="closeFullscreenChart" style="position:absolute; left:10px; top:10px; z-index:10000; font-size:20px;">← Back</button>
+    <div id="fullscreenChartContainer" style="width:100vw; height:100vh;"></div>
+  </div>
+
+  <div id="klineChartPanel" style="display:none; height:100%; width:100%;">
+    <div class="panel-title">K線圖</div>
+    <div class="hm-wrap">
+      <div id="klineChart"></div>
+    </div>
+  </div>
+
+  <script>
+        // Update button functionality
+        document.getElementById('updateBtn').onclick = async function() {
+          const symbol = document.getElementById('mainSymbol').value.trim();
+          if (!symbol) { alert('Please enter a stock symbol'); return; }
+          const btn = this;
+          btn.disabled = true;
+          btn.textContent = 'Updating...';
+          try {
+            await fetch('/stock/update?symbol=' + encodeURIComponent(symbol), { method: 'POST' });
+            // After update, auto refresh right panel
+            await refreshRightPanel();
+          } catch (e) {
+            // Optional: alert('Update failed');
+          }
+          btn.disabled = false;
+          btn.textContent = 'Update';
+        };
+    let heatmapRowsCache = [];
+    let heatmapChart = null;
+    let trendPointsCache = [];
+    let trendSymbolCache = 'AAPL';
+    let trendMessageCache = '';
+    let trendUsedGranularity = '';
+    let trendRequestVersion = 0;
+    const TREND_TIME_RANGES = {
+      '8d_1m': ['8d', '1m'],
+      '60d_5m': ['60d', '5m'],
+      '60d_15m': ['60d', '15m'],
+      '60d_30m': ['60d', '30m'],
+      '60d_90m': ['60d', '90m'],
+      '730d_1h': ['730d', '1h'],
+      'max_1d': ['max', '1d'],
+      'max_1mo': ['max', '1mo'],
+      'max_3mo': ['max', '3mo']
+    };
+    const TREND_TIMEZONES = {
+      us: 'America/New_York',
+      hk: 'Asia/Hong_Kong'
+    };
+
+    function getSelectedTrendTimezone() {
+      const key = document.getElementById('trendTimezone')?.value || 'us';
+      return TREND_TIMEZONES[key] || TREND_TIMEZONES.us;
+    }
+
+    function isIntradayInterval(interval) {
+      return /m|h$/i.test(String(interval || ''));
+    }
+
+    function formatTrendTimestamp(ts, withTime = false) {
+      if (!Number.isFinite(ts)) return '';
+      const formatter = new Intl.DateTimeFormat('en-US', withTime
+        ? {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: getSelectedTrendTimezone()
+          }
+        : {
+            month: '2-digit',
+            day: '2-digit',
+            timeZone: getSelectedTrendTimezone()
+          });
+      return formatter.format(new Date(ts)).replace(/\s*,\s*/g, ' ');
+    }
+
+    async function getJson(url) {
+      // 自動加 API 前綴，靜態資源不變
+      let apiUrl = url;
+      if (/^\/(stock|assets)\//.test(url) && !url.startsWith('http')) {
+        if (!url.startsWith('/assets/logo')) {
+          apiUrl = 'http://localhost:8081' + url;
+        }
+      }
+      const res = await fetch(apiUrl, { cache: 'no-store' });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`HTTP ${res.status}: ${txt}`);
+      }
+      return await res.json();
+    }
+
+    function getCurrentSymbol() {
+      const input = document.getElementById('mainSymbol');
+      const value = (input?.value || '').trim().toUpperCase();
+      return value || 'AAPL';
+    }
+
+    async function refreshRightPanel() {
+      const symbol = getCurrentSymbol();
+      document.getElementById('mainSymbol').value = symbol;
+      await Promise.all([loadTrend(symbol), loadMarketInfo(symbol)]);
+    }
+
+    function normalizeCandles(data, options = {}) {
+      const toNumber = (value) => {
+        if (value === null || value === undefined || value === '') return NaN;
+        if (typeof value === 'number') return value;
+        const normalized = String(value).replace(/,/g, '');
+        return Number(normalized);
+      };
+
+      const intervalToMs = (interval) => {
+        const map = {
+          '1m': 60 * 1000,
+          '5m': 5 * 60 * 1000,
+          '15m': 15 * 60 * 1000,
+          '30m': 30 * 60 * 1000,
+          '60m': 60 * 60 * 1000,
+          '90m': 90 * 60 * 1000,
+          '1h': 60 * 60 * 1000,
+          '1d': 24 * 60 * 60 * 1000,
+          '1mo': 30 * 24 * 60 * 60 * 1000,
+          '3mo': 90 * 24 * 60 * 60 * 1000
+        };
+        return map[String(interval || '').toLowerCase()] || null;
+      };
+
+      const fallbackIntervalMs = intervalToMs(options.interval);
+      const fallbackStartMs = Number.isFinite(options.start) ? options.start * 1000 : NaN;
+      const fallbackEndMs = Number.isFinite(options.end) ? options.end * 1000 : NaN;
+
+      const useIntradayTooltip = isIntradayInterval(options.interval);
+      const useIntradayStepFallback = /m|h$/i.test(String(options.interval || ''));
+      const tzKey = document.getElementById('trendTimezone')?.value || 'us';
+      const selectedTimeZone = getSelectedTrendTimezone();
+      const partsFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: selectedTimeZone,
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+      const intervalMinutes = (() => {
+        const text = String(options.interval || '').toLowerCase();
+        if (text.endsWith('m')) return Number(text.replace('m', ''));
+        if (text.endsWith('h')) return Number(text.replace('h', '')) * 60;
+        return NaN;
+      })();
+      const needsSessionAnchoring = Number.isFinite(intervalMinutes) && intervalMinutes > 1;
+
+      const getTimeParts = (ts) => {
+        const parts = partsFormatter.formatToParts(new Date(ts));
+        const pick = (type) => parts.find(p => p.type === type)?.value || '';
+        return {
+          weekday: pick('weekday'),
+          hour: Number(pick('hour')),
+          minute: Number(pick('minute'))
+        };
+      };
+
+      const isTradingMinute = (ts) => {
+        const { weekday, hour, minute } = getTimeParts(ts);
+        if (weekday === 'Sat' || weekday === 'Sun') return false;
+        if (!Number.isFinite(hour) || !Number.isFinite(minute)) return false;
+        const mins = hour * 60 + minute;
+
+        if (tzKey === 'hk') {
+          const mStart = 9 * 60 + 30;
+          const mEnd = 12 * 60;
+          const aStart = 13 * 60;
+          const aEnd = 16 * 60;
+          return (mins >= mStart && mins <= mEnd) || (mins >= aStart && mins <= aEnd);
+        }
+
+        const usStart = 9 * 60 + 30;
+        const usEnd = 16 * 60;
+        return mins >= usStart && mins <= usEnd;
+      };
+
+      const isSessionBoundary = (ts) => {
+        if (!needsSessionAnchoring) return true;
+        const { hour, minute } = getTimeParts(ts);
+        if (!Number.isFinite(hour) || !Number.isFinite(minute)) return false;
+        const mins = hour * 60 + minute;
+
+        if (tzKey === 'hk') {
+          const morningStart = 9 * 60 + 30;
+          const morningEnd = 12 * 60;
+          const afternoonStart = 13 * 60;
+          const afternoonEnd = 16 * 60;
+
+          if (mins >= morningStart && mins <= morningEnd) {
+            return ((mins - morningStart) % intervalMinutes) === 0;
+          }
+          if (mins >= afternoonStart && mins <= afternoonEnd) {
+            return ((mins - afternoonStart) % intervalMinutes) === 0;
+          }
+          return false;
+        }
+
+        const usStart = 9 * 60 + 30;
+        const usEnd = 16 * 60;
+        if (mins < usStart || mins > usEnd) return false;
+        return ((mins - usStart) % intervalMinutes) === 0;
+      };
+
+      const buildTradingTimeline = (count) => {
+        if (!Number.isFinite(fallbackStartMs) || !Number.isFinite(fallbackEndMs) || !Number.isFinite(fallbackIntervalMs) || count <= 0) {
+          return [];
+        }
+        const windowMs = fallbackEndMs - fallbackStartMs;
+        if (windowMs > 120 * 24 * 60 * 60 * 1000) {
+          return [];
+        }
+        const timeline = [];
+        const stepMs = Math.max(60 * 1000, fallbackIntervalMs);
+        for (let ts = fallbackStartMs; ts <= fallbackEndMs; ts += stepMs) {
+          if (isTradingMinute(ts) && isSessionBoundary(ts)) timeline.push(ts);
+        }
+        if (timeline.length < count) return [];
+        return timeline.slice(timeline.length - count);
+      };
+
+      const buildFromArrays = (closes, times) => {
+        if (!Array.isArray(closes)) return [];
+        const points = [];
+        const tradingTimeline = useIntradayStepFallback ? buildTradingTimeline(closes.length) : [];
+        for (let i = 0; i < closes.length; i++) {
+          const close = toNumber(closes[i]);
+          if (!Number.isFinite(close)) continue;
+
+          const tsRaw = Array.isArray(times) ? times[i] : undefined;
+          let ts = toNumber(tsRaw);
+          if (Number.isFinite(ts) && ts > 0 && ts < 1000000000000) ts = ts * 1000;
+
+          if (!Number.isFinite(ts) && Number.isFinite(fallbackIntervalMs)) {
+            if (useIntradayStepFallback && Number.isFinite(fallbackStartMs)) {
+              if (tradingTimeline.length === closes.length) {
+                ts = tradingTimeline[i];
+              } else if (Number.isFinite(fallbackEndMs)) {
+                ts = fallbackEndMs - ((closes.length - 1 - i) * fallbackIntervalMs);
+              } else {
+                ts = fallbackStartMs + (i * fallbackIntervalMs);
+              }
+            } else if (Number.isFinite(fallbackStartMs) && Number.isFinite(fallbackEndMs) && closes.length > 1) {
+              const ratio = i / (closes.length - 1);
+              ts = fallbackStartMs + Math.round((fallbackEndMs - fallbackStartMs) * ratio);
+            } else if (Number.isFinite(fallbackStartMs)) {
+              ts = fallbackStartMs + (i * fallbackIntervalMs);
+            } else if (Number.isFinite(fallbackEndMs) && closes.length > 0) {
+              ts = fallbackEndMs - ((closes.length - 1 - i) * fallbackIntervalMs);
+            }
+          }
+
+          const date = Number.isFinite(ts) ? formatTrendTimestamp(ts, false) : String(i + 1);
+          const tooltipDate = Number.isFinite(ts)
+            ? (useIntradayTooltip ? formatTrendTimestamp(ts, true) : formatTrendTimestamp(ts, false))
+            : date;
+
+          points.push({ ts: Number.isFinite(ts) ? ts : null, date, tooltipDate, close });
+        }
+        return points;
+      };
+
+      if (data && Array.isArray(data.close)) {
+        const times = Array.isArray(data.timestamp)
+          ? data.timestamp
+          : Array.isArray(data.timestamps)
+            ? data.timestamps
+            : Array.isArray(data.time)
+              ? data.time
+              : Array.isArray(data.t)
+                ? data.t
+              : [];
+        const points = buildFromArrays(data.close, times);
+        if (points.length) return points;
+      }
+
+      if (data && (Array.isArray(data.Close) || Array.isArray(data.closes))) {
+        const closes = Array.isArray(data.Close) ? data.Close : data.closes;
+        const times = Array.isArray(data.Timestamps)
+          ? data.Timestamps
+          : Array.isArray(data.timestamps)
+            ? data.timestamps
+            : Array.isArray(data.timestamp)
+              ? data.timestamp
+              : [];
+        const points = buildFromArrays(closes, times);
+        if (points.length) return points;
+      }
+
+      const yahooResult = data?.chart?.result?.[0];
+      if (yahooResult?.indicators?.quote?.[0]?.close && Array.isArray(yahooResult.indicators.quote[0].close)) {
+        const closes = yahooResult.indicators.quote[0].close;
+        const times = Array.isArray(yahooResult.timestamp) ? yahooResult.timestamp : [];
+        const points = buildFromArrays(closes, times);
+        if (points.length) return points;
+      }
+
+      const raw = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.candles)
+          ? data.candles
+          : Array.isArray(data?.results)
+            ? data.results
+            : [];
+
+      return raw
+        .map(item => {
+          const timeRaw = item?.timestamp ?? item?.time ?? item?.date ?? item?.datetime ?? item?.t ?? item?.[0];
+          const closeRaw = item?.close ?? item?.c ?? item?.price ?? item?.[4];
+          const close = toNumber(closeRaw);
+          let ts = toNumber(timeRaw);
+          if (Number.isFinite(ts) && ts > 0 && ts < 1000000000000) ts = ts * 1000;
+          const date = Number.isFinite(ts) ? formatTrendTimestamp(ts, false) : '';
+          const tooltipDate = Number.isFinite(ts)
+            ? (useIntradayTooltip ? formatTrendTimestamp(ts, true) : formatTrendTimestamp(ts, false))
+            : date;
+          return { ts: Number.isFinite(ts) ? ts : null, date, tooltipDate, close };
+        })
+        .filter(point => point.date && Number.isFinite(point.close));
+    }
+
+    async function loadTrend(symbol) {
+      const reqVersion = ++trendRequestVersion;
+      trendSymbolCache = symbol;
+      const now = Math.floor(Date.now() / 1000);
+      const rangeKey = document.getElementById('trendRange')?.value || '730d_1h';
+      const [period, interval] = TREND_TIME_RANGES[rangeKey] || ['730d', '1h'];
+      let start = now - 86400 * 730;
+      let end = now;
+      // 只針對 interval 結尾為 m 的分鐘線做開市對齊
+      if (/m$/i.test(interval)) {
+        const tzKey = document.getElementById('trendTimezone')?.value || 'us';
+        const tz = (tzKey === 'hk') ? 'Asia/Hong_Kong' : 'America/New_York';
+        let tryDate = new Date();
+        let found = false;
+        let openDate, closeDate;
+        while (!found) {
+          const ymd = tryDate.toLocaleDateString('en-CA', { timeZone: tz });
+          let openStr = ymd + 'T09:30:00';
+          let closeStr = ymd + (tzKey === 'hk' ? 'T16:00:00' : 'T16:00:00');
+          openDate = new Date(openStr + (tzKey === 'hk' ? '+08:00' : '-05:00'));
+          closeDate = new Date(closeStr + (tzKey === 'hk' ? '+08:00' : '-05:00'));
+          const weekday = openDate.getUTCDay();
+          const nowUtc = Date.now();
+          if (weekday !== 0 && weekday !== 6 && openDate.getTime() <= nowUtc) {
+            found = true;
+          } else {
+            tryDate.setDate(tryDate.getDate() - 1);
+          }
+        }
+        start = Math.floor(openDate.getTime() / 1000);
+        // end 為收市或現在
+        end = Math.floor(Math.min(closeDate.getTime(), Date.now()) / 1000);
+      } else if (period !== 'max') {
+        const days = Number(String(period).replace('d', ''));
+        if (Number.isFinite(days) && days > 0) {
+          start = now - 86400 * days;
+        }
+      } else {
+        start = 946684800;
+      }
+      try {
+        const loadByInterval = async (granularity) => {
+          const maxAttempts = 3;
+          for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            const url = `/stock/candlesticks?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(granularity)}&start=${start}&end=${end}&_ts=${Date.now()}_${attempt}`;
+            const data = await getJson(url);
+            const normalized = normalizeCandles(data, { interval: granularity, start, end });
+            if (normalized.length) {
+              return { points: normalized, rawCount: normalized.length, attempts: attempt };
+            }
+
+            const rawClose = Array.isArray(data?.close)
+              ? data.close
+              : Array.isArray(data?.Close)
+                ? data.Close
+                : Array.isArray(data?.closes)
+                  ? data.closes
+                  : [];
+
+            if (rawClose.length) {
+              const forced = rawClose
+                .map((value, idx) => {
+                  const num = Number(String(value).replace(/,/g, ''));
+                  if (!Number.isFinite(num)) return null;
+                  let ts = NaN;
+                  if (rawClose.length > 1) {
+                    const ratio = idx / (rawClose.length - 1);
+                    ts = (start * 1000) + Math.round(((now - start) * 1000) * ratio);
+                  }
+                  const date = Number.isFinite(ts) ? formatMMDD(ts) : String(idx + 1);
+                  const tooltipDate = Number.isFinite(ts)
+                    ? (isIntradayInterval(granularity) ? formatMMDDHHmm(ts) : formatMMDD(ts))
+                    : date;
+                  return { ts: Number.isFinite(ts) ? ts : null, date, tooltipDate, close: num };
+                })
+                .filter(Boolean);
+              if (forced.length) {
+                return { points: forced, rawCount: rawClose.length, attempts: attempt };
+              }
+            }
+
+            if (attempt < maxAttempts) {
+              await new Promise(resolve => setTimeout(resolve, 220));
+            } else {
+              return { points: [], rawCount: rawClose.length, attempts: attempt };
+            }
+          }
+
+          return { points: [], rawCount: 0, attempts: maxAttempts };
+        };
+
+        const result = await loadByInterval(interval);
+        const points = result.points;
+        const rawCount = result.rawCount;
+        const attempts = result.attempts;
+        const usedGranularity = interval;
+
+        if (reqVersion !== trendRequestVersion) return;
+
+        if (!points.length) {
+          trendPointsCache = [];
+          trendMessageCache = `${symbol} ${interval} no trend data (raw close=${rawCount}, retry=${attempts})`;
+          trendUsedGranularity = interval;
+          renderTrendD3();
+          return;
+        }
+
+        trendPointsCache = points;
+        trendUsedGranularity = usedGranularity;
+        trendMessageCache = '';
+        renderTrendD3();
+      } catch (e) {
+        if (reqVersion !== trendRequestVersion) return;
+        trendPointsCache = [];
+        trendUsedGranularity = interval;
+        trendMessageCache = `${symbol} failed to load trend data`;
+        renderTrendD3();
+      }
+    }
+
+    function renderTrendD3() {
+      const container = document.getElementById('trendChart');
+      if (!container) return;
+
+      container.innerHTML = '';
+      const width = container.clientWidth || 320;
+      const height = container.clientHeight || 280;
+
+      if (!trendPointsCache.length) {
+        const empty = document.createElement('div');
+        empty.className = 'trend-empty';
+        empty.textContent = trendMessageCache || `${trendSymbolCache} no trend data`;
+        container.appendChild(empty);
+        return;
+      }
+
+      const margin = { top: 10, right: 10, bottom: 26, left: 44 };
+      const innerWidth = Math.max(60, width - margin.left - margin.right);
+      const innerHeight = Math.max(60, height - margin.top - margin.bottom);
+
+      const svg = d3.select(container)
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height);
+
+      d3.select(container)
+        .append('div')
+        .attr('class', 'trend-status')
+        .text(`${trendPointsCache.length} pts · ${trendUsedGranularity || '-'}`);
+
+      const tooltip = d3.select(container)
+        .append('div')
+        .attr('class', 'd3-tooltip');
+
+      const g = svg.append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+      const clipId = `trend-clip-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+      svg.append('defs')
+        .append('clipPath')
+        .attr('id', clipId)
+        .append('rect')
+        .attr('x', 0)
+        .attr('y', 0)
+        .attr('width', innerWidth)
+        .attr('height', innerHeight);
+
+      const plotLayer = g.append('g')
+        .attr('clip-path', `url(#${clipId})`);
+
+      const xBase = d3.scaleLinear()
+        .domain([0, trendPointsCache.length - 1])
+        .range([0, innerWidth]);
+
+      let xCurrent = xBase.copy();
+
+      const yExtent = d3.extent(trendPointsCache, d => d.close);
+      const yMinRaw = Number.isFinite(yExtent[0]) ? yExtent[0] : 0;
+      const yMaxRaw = Number.isFinite(yExtent[1]) ? yExtent[1] : 1;
+      const yMin = yMinRaw === yMaxRaw ? yMinRaw - 1 : yMinRaw;
+      const yMax = yMinRaw === yMaxRaw ? yMaxRaw + 1 : yMaxRaw;
+
+      const y = d3.scaleLinear()
+        .domain([yMin, yMax])
+        .nice()
+        .range([innerHeight, 0]);
+
+      const area = d3.area()
+        .x((d, i) => xCurrent(i))
+        .y0(innerHeight)
+        .y1(d => y(d.close))
+        .curve(d3.curveMonotoneX);
+
+      const line = d3.line()
+        .x((d, i) => xCurrent(i))
+        .y(d => y(d.close))
+        .curve(d3.curveMonotoneX);
+
+      const areaPath = plotLayer.append('path')
+        .datum(trendPointsCache)
+        .attr('fill', 'rgba(37,99,235,0.12)')
+        .attr('d', area);
+
+      const linePath = plotLayer.append('path')
+        .datum(trendPointsCache)
+        .attr('fill', 'none')
+        .attr('stroke', '#2563eb')
+        .attr('stroke-width', 2)
+        .attr('d', line);
+
+      const tickCount = Math.min(6, Math.max(2, Math.floor(innerWidth / 90)));
+      const xAxis = d3.axisBottom(xCurrent)
+        .ticks(tickCount)
+        .tickFormat(i => {
+          const point = trendPointsCache[Math.max(0, Math.min(trendPointsCache.length - 1, Math.round(i)))];
+          if (!point) return '';
+          return Number.isFinite(point.ts) ? formatTrendTimestamp(point.ts, false) : (point.date || '');
+        });
+      const yAxis = d3.axisLeft(y).ticks(5);
+
+      const xAxisG = g.append('g')
+        .attr('class', 'd3-axis')
+        .attr('transform', `translate(0,${innerHeight})`)
+        .call(xAxis);
+
+      xAxisG.selectAll('text')
+        .style('font-size', '10px');
+
+      g.append('g')
+        .attr('class', 'd3-axis')
+        .call(yAxis);
+
+      const hoverLayer = g.append('g').style('display', 'none');
+
+      const crosshairX = hoverLayer.append('line')
+        .attr('stroke', '#94a3b8')
+        .attr('stroke-width', 1)
+        .attr('y1', 0)
+        .attr('y2', innerHeight)
+        .attr('stroke-dasharray', '3 3');
+
+      const crosshairY = hoverLayer.append('line')
+        .attr('stroke', '#94a3b8')
+        .attr('stroke-width', 1)
+        .attr('x1', 0)
+        .attr('x2', innerWidth)
+        .attr('stroke-dasharray', '3 3');
+
+      const focusDot = hoverLayer.append('circle')
+        .attr('r', 4)
+        .attr('fill', '#2563eb')
+        .attr('stroke', '#ffffff')
+        .attr('stroke-width', 1.5);
+
+      const overlay = g.append('rect')
+        .attr('width', innerWidth)
+        .attr('height', innerHeight)
+        .attr('fill', 'transparent')
+        .style('cursor', 'grab')
+        .on('mouseenter', () => {
+          hoverLayer.style('display', null);
+          tooltip.style('display', 'block');
+        })
+        .on('mouseleave', () => {
+          hoverLayer.style('display', 'none');
+          tooltip.style('display', 'none');
+        })
+        .on('mousemove', function(event) {
+          const [mx] = d3.pointer(event, this);
+          const rawIndex = Math.round(xCurrent.invert(Math.max(0, Math.min(innerWidth, mx))));
+          const index = Math.max(0, Math.min(trendPointsCache.length - 1, rawIndex));
+          const point = trendPointsCache[index];
+          if (!point) return;
+
+          const px = xCurrent(index);
+          const py = y(point.close);
+
+          crosshairX.attr('x1', px).attr('x2', px);
+          crosshairY.attr('y1', py).attr('y2', py);
+          focusDot.attr('cx', px).attr('cy', py);
+
+          tooltip
+            .style('left', `${margin.left + px}px`)
+            .style('top', `${margin.top + py}px`)
+            .html(`${Number.isFinite(point.ts)
+              ? formatTrendTimestamp(point.ts, isIntradayInterval(trendUsedGranularity))
+              : (point.tooltipDate || point.date)}<br>${trendSymbolCache}: ${point.close.toFixed(2)} US`);
+        });
+
+      const redraw = () => {
+        areaPath.attr('d', area);
+        linePath.attr('d', line);
+        const nextXAxis = d3.axisBottom(xCurrent)
+          .ticks(tickCount)
+          .tickFormat(i => {
+            const point = trendPointsCache[Math.max(0, Math.min(trendPointsCache.length - 1, Math.round(i)))];
+            if (!point) return '';
+            return Number.isFinite(point.ts) ? formatTrendTimestamp(point.ts, false) : (point.date || '');
+          });
+        xAxisG.call(nextXAxis);
+      };
+
+      const zoom = d3.zoom()
+        .scaleExtent([1, 20])
+        .translateExtent([[0, 0], [innerWidth, innerHeight]])
+        .extent([[0, 0], [innerWidth, innerHeight]])
+        .on('start', () => overlay.style('cursor', 'grabbing'))
+        .on('zoom', (event) => {
+          xCurrent = event.transform.rescaleX(xBase);
+          redraw();
+        })
+        .on('end', () => overlay.style('cursor', 'grab'));
+
+      overlay.call(zoom).on('dblclick.zoom', null);
+
+      overlay.call(zoom.transform, d3.zoomIdentity);
+    }
+
+    function getFirst(data, keys, fallback = null) {
+      for (const key of keys) {
+        if (data && data[key] !== undefined && data[key] !== null && data[key] !== '') return data[key];
+      }
+      return fallback;
+    }
+
+    function fmtNumber(value, digits = 2) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return 'N/A';
+      return n.toFixed(digits);
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function trendClass(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n === 0) return 'flat';
+      return n > 0 ? 'up' : 'down';
+    }
+
+    async function ensureHeatmapCache() {
+      if (Array.isArray(heatmapRowsCache) && heatmapRowsCache.length > 0) return;
+      try {
+        const data = await getJson('/stock/heatmap');
+        heatmapRowsCache = Array.isArray(data) ? data : [];
+      } catch (e) {
+        heatmapRowsCache = [];
+      }
+    }
+
+    async function getMetaFromHeatmap(symbol) {
+      await ensureHeatmapCache();
+      const target = String(symbol || '').toUpperCase();
+      if (!target) return { sector: null, industry: null };
+
+      const matched = heatmapRowsCache.find(item => String(item?.symbol || '').toUpperCase() === target);
+      if (!matched) return { sector: null, industry: null };
+
+      return {
+        sector: matched.sector ?? null,
+        industry: matched.industry ?? null
+      };
+    }
+
+    async function loadMarketInfo(symbol) {
+      const container = document.getElementById('marketInfo');
+      container.innerHTML = 'Loading...';
+      try {
+        const [data, stockInfoResp] = await Promise.all([
+          getJson(`/stock/realtime?symbol=${encodeURIComponent(symbol)}`),
+          getJson(`/stock/company-info?symbol=${encodeURIComponent(symbol)}`).catch(() => null)
+        ]);
+        const stockInfo = stockInfoResp || data?.stock_info || data?.stockInfo || {};
+        const symbolValue = getFirst(data, ['symbol'], symbol);
+        const companyName = getFirst(stockInfo, ['company_name', 'companyName'], '-');
+        const heatmapMeta = await getMetaFromHeatmap(symbolValue);
+        const sector = getFirst(stockInfo, ['sector'], getFirst(data, ['sector'], getFirst(heatmapMeta, ['sector'], 'N/A')));
+        const industry = getFirst(stockInfo, ['industry'], getFirst(data, ['industry'], getFirst(heatmapMeta, ['industry'], 'N/A')));
+        const regularMarketPrice = getFirst(data, ['regularMarketPrice', 'price', 'currentPrice']);
+        const regularMarketChange = getFirst(data, ['regularMarketChange', 'change']);
+        const regularMarketChangePercent = getFirst(data, ['regularMarketChangePercent', 'changePercent']);
+        const logoSrc = `/assets/logo/${encodeURIComponent(symbolValue)}`;
+
+        const changeClass = trendClass(regularMarketChange);
+        const changePctClass = trendClass(regularMarketChangePercent);
+
+        container.innerHTML = `
+          <div class="stock-head" style="cursor:pointer" id="stockHeadClickable">
+            <a href="/kline.html"><img class="stock-logo" src="${logoSrc}" alt="${escapeHtml(symbolValue)} logo" onerror="this.style.display='none'" /></a>
+            <div class="stock-name">${escapeHtml(symbolValue)}</div>
+          </div>
+          <div class="stock-company">${escapeHtml(String(companyName))}</div>
+          <div class="stock-meta">${escapeHtml(String(sector))} · ${escapeHtml(String(industry))}</div>
+          <div class="stock-price-row">
+            <div class="stock-price">${fmtNumber(regularMarketPrice)} US</div>
+            <div class="stock-change ${changeClass}">${fmtNumber(regularMarketChange)}</div>
+            <div class="stock-change-pct ${changePctClass}">${fmtNumber(regularMarketChangePercent)}%</div>
+          </div>
+        `;
+        // 點擊 logo 或 symbol，隱藏 heatmapPanel，只顯示右側
+        setTimeout(() => {
+          const head = document.getElementById('stockHeadClickable');
+          if (head) {
+            head.onclick = () => {
+              document.getElementById('heatmapPanel').style.display = 'none';
+            };
+          }
+        }, 0);
+      } catch (e) {
+        container.textContent = e.message;
+      }
+    }
+
+    async function testHeatmap() {
+      const out = document.getElementById('hmOut');
+      out.style.display = 'none';
+      try {
+        const data = await getJson('/stock/heatmap');
+        heatmapRowsCache = Array.isArray(data) ? data : [];
+        renderHeatmap(heatmapRowsCache);
+      } catch (e) {
+        out.style.display = 'block';
+        out.textContent = e.message;
+      }
+    }
+
+    function rerenderHeatmap() {
+      renderHeatmap(heatmapRowsCache);
+    }
+
+    function pctToColor(changePct) {
+      if (changePct === null || changePct === undefined || Number.isNaN(changePct)) {
+        return '#9ca3af';
+      }
+      if (changePct >= -1 && changePct <= 1) {
+        return '#9ca3af';
+      }
+      const abs = Math.min(Math.abs(changePct), 8);
+      const strength = abs / 8;
+      const mix = (light, dark, t) => Math.round(light + (dark - light) * t);
+      if (changePct >= 0) {
+        const r = mix(132, 18, strength);
+        const g = mix(205, 122, strength);
+        const b = mix(162, 72, strength);
+        return `rgb(${r}, ${g}, ${b})`;
+      }
+      const r = mix(227, 153, strength);
+      const g = mix(166, 46, strength);
+      const b = mix(166, 46, strength);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    function formatPct(changePct) {
+      if (changePct === null || changePct === undefined || Number.isNaN(changePct)) {
+        return '0.0%';
+      }
+      const sign = changePct > 0 ? '+' : '';
+      return `${sign}${changePct.toFixed(1)}%`;
+    }
+
+    function quantile(values, percentile) {
+      if (!values || values.length === 0) return 0;
+      const sorted = values.slice().sort((a, b) => a - b);
+      const index = Math.floor((sorted.length - 1) * percentile);
+      return sorted[index] ?? 0;
+    }
+
+    function renderHeatmap(rows) {
+      const bySector = new Map();
+      const totalCount = (rows || []).length;
+      const groupMode = document.getElementById('groupMode')?.value || 'sector';
+
+      const valueSamples = (rows || [])
+        .map(item => Number(item.marketCap ?? 0))
+        .filter(value => Number.isFinite(value) && value > 0);
+      const maxValue = valueSamples.length ? Math.max(...valueSamples) : 1;
+      const xLargeThreshold = quantile(valueSamples, 0.975);
+      const largeThreshold = quantile(valueSamples, 0.90);
+      const mediumThreshold = quantile(valueSamples, 0.60);
+      const smallThreshold = quantile(valueSamples, 0.30);
+
+      const chartDom = document.getElementById('hmChart');
+      const containerHeight = chartDom.parentElement?.clientHeight || window.innerHeight;
+      // Cap and floor the heatmap height so it fits smaller viewports without forcing a large min-height
+      const horizontalHeight = Math.max(360, Math.min(720, containerHeight));
+      chartDom.style.height = `${horizontalHeight}px`;
+
+      (rows || [])
+        .slice()
+        .sort((a, b) => {
+          const sa = (a.sector || 'Other').localeCompare(b.sector || 'Other');
+          if (sa !== 0) return sa;
+          return (a.symbol || '').localeCompare(b.symbol || '');
+        })
+        .forEach(item => {
+        const sectorRaw = String(item.sector || '').trim();
+        if (!sectorRaw || /^other$/i.test(sectorRaw)) return;
+        const sector = sectorRaw;
+        if (!bySector.has(sector)) bySector.set(sector, []);
+
+        const changePct = Number(item.changePct ?? 0);
+        const marketCap = Number(item.marketCap ?? 0);
+        const value = marketCap > 0 ? marketCap : 1;
+        const symbol = item.symbol || 'N/A';
+        const pctText = formatPct(changePct);
+        const logoUrl = item.logoUrl || '';
+        const valueRatio = Math.max(0, Math.min(1, value / maxValue));
+        const curve = Math.sqrt(valueRatio);
+        const symbolFont = Math.round(10 + 14 * curve);
+        const pctFont = Math.round(9 + 10 * curve);
+        const logoXLSize = Math.round(18 + 18 * curve);
+        const logoXLBSize = Math.round(logoXLSize * 1.22);
+        const logoLSize = Math.round(14 + 10 * curve);
+        const logoMSize = Math.round(12 + 10 * curve);
+        const logoSSize = Math.round(9 + 6 * curve);
+        // Cap logo sizes to avoid overflowing small treemap cells (reduced limits)
+        const LOGO_MAX_XLB = 56;
+        const LOGO_MAX_XL = 40;
+        const LOGO_MAX_L = 36;
+        const LOGO_MAX_M = 24;
+        const LOGO_MAX_S = 16;
+        const cappedLogoXLSize = Math.min(logoXLSize, LOGO_MAX_XL);
+        const cappedLogoXLBSize = Math.min(logoXLBSize, LOGO_MAX_XLB);
+        const cappedLogoLSize = Math.min(logoLSize, LOGO_MAX_L);
+        const cappedLogoMSize = Math.min(logoMSize, LOGO_MAX_M);
+        const cappedLogoSSize = Math.min(logoSSize, LOGO_MAX_S);
+
+        // Build labels as a compact stacked block (logo / symbol / percent)
+        const labelXLarge = logoUrl
+          ? `{logoXL| }\n{symXL|${symbol}}\n{pctXL|${pctText}}`
+          : `{symXL|${symbol}}\n{pctXL|${pctText}}`;
+        const labelXLargeBig = logoUrl
+          ? `{logoXLB| }\n{symXLB|${symbol}}\n{pctXLB|${pctText}}`
+          : `{symXLB|${symbol}}\n{pctXLB|${pctText}}`;
+        const labelLarge = logoUrl
+          ? `{logoL| }\n{symL|${symbol}}\n{pctL|${pctText}}`
+          : `{symL|${symbol}}\n{pctL|${pctText}}`;
+        const labelMedium = logoUrl
+          ? `{logoM| }\n{pctM|${pctText}}`
+          : `{pctM|${pctText}}`;
+        const labelSmall = logoUrl ? `{logoS| }\n{symS|${symbol}}` : `{symS|${symbol}}`;
+        const labelTiny = logoUrl ? `{logoS| }\n{symS|${symbol}}` : `{symS|${symbol}}`;
+        const tier = value >= xLargeThreshold
+          ? 'xlarge'
+          : value >= largeThreshold
+            ? 'large'
+            : value >= mediumThreshold
+              ? 'medium'
+              : value >= smallThreshold
+                ? 'small'
+                : 'tiny';
+        const selectedFormatter = tier === 'xlarge'
+          ? labelXLarge
+          : tier === 'large'
+            ? labelLarge
+            : tier === 'medium'
+              ? labelMedium
+              : tier === 'small'
+                ? labelSmall
+                : labelTiny;
+        const desiredRank = tier === 'xlarge'
+          ? 4
+          : tier === 'large'
+            ? 3
+            : tier === 'medium'
+              ? 2
+              : tier === 'small'
+                ? 1
+                : 0;
+
+        bySector.get(sector).push({
+          name: symbol,
+          value,
+          itemStyle: { color: pctToColor(changePct) },
+          raw: item,
+          _desiredRank: desiredRank,
+          _labelXLarge: labelXLarge,
+          _labelXLargeBig: labelXLargeBig,
+          _labelLarge: labelLarge,
+          _labelMedium: labelMedium,
+          _labelSmall: labelSmall,
+          _labelTiny: labelTiny,
+          label: {
+              show: true,
+              position: 'inside',
+              align: 'center',
+              verticalAlign: 'middle',
+              // Provide formatter as a function so we return the raw rich-text string
+              // ECharts will parse rich placeholders like {logoXL|...} correctly.
+              formatter: function() { return selectedFormatter; },
+              rich: {
+              
+              logoXL: {
+                width: cappedLogoXLSize,
+                height: cappedLogoXLSize,
+                align: 'center',
+                verticalAlign: 'middle',
+                borderRadius: 4,
+                backgroundColor: logoUrl ? { image: logoUrl } : '#ffffff',
+                borderWidth: 0,
+                padding: 0,
+                lineHeight: cappedLogoXLSize
+              },
+              logoXLB: {
+                width: cappedLogoXLBSize,
+                height: cappedLogoXLBSize,
+                align: 'center',
+                verticalAlign: 'middle',
+                borderRadius: 4,
+                backgroundColor: logoUrl ? { image: logoUrl } : '#ffffff',
+                borderWidth: 0,
+                padding: 0,
+                lineHeight: cappedLogoXLBSize
+              },
+              logoL: {
+                width: cappedLogoLSize,
+                height: cappedLogoLSize,
+                align: 'center',
+                verticalAlign: 'middle',
+                borderRadius: 4,
+                backgroundColor: logoUrl ? { image: logoUrl } : '#ffffff',
+                borderWidth: 0,
+                padding: 0,
+                lineHeight: cappedLogoLSize
+              },
+              logoM: {
+                width: cappedLogoMSize,
+                height: cappedLogoMSize,
+                align: 'center',
+                verticalAlign: 'middle',
+                borderRadius: 4,
+                backgroundColor: logoUrl ? { image: logoUrl } : '#ffffff',
+                borderWidth: 0,
+                padding: 0,
+                lineHeight: cappedLogoMSize
+              },
+              logoS: {
+                width: cappedLogoSSize,
+                height: cappedLogoSSize,
+                align: 'center',
+                verticalAlign: 'middle',
+                borderRadius: 3,
+                backgroundColor: logoUrl ? { image: logoUrl } : '#ffffff',
+                borderWidth: 0,
+                padding: 0,
+                lineHeight: cappedLogoSSize
+              },
+              // Unified symmetric gap for top and bottom across all tiers
+              gapXL: { fontSize: 1, lineHeight: 3, color: 'transparent' },
+              gapXLB: { fontSize: 1, lineHeight: 3, color: 'transparent' },
+              gapL: { fontSize: 1, lineHeight: 3, color: 'transparent' },
+              gapM: { fontSize: 1, lineHeight: 3, color: 'transparent' },
+              gapS: { fontSize: 1, lineHeight: 3, color: 'transparent' },
+              symXL: { fontSize: Math.max(18, Math.round(symbolFont * 1.15)), color: '#fff', fontWeight: '800', lineHeight: Math.max(16, Math.round(symbolFont * 1.15) + 2), align: 'center', verticalAlign: 'middle' },
+              pctXL: { fontSize: Math.max(12, Math.round(pctFont * 0.95)), color: '#fff', lineHeight: Math.max(12, Math.round(pctFont * 0.95) + 1), align: 'center', verticalAlign: 'middle' },
+              symXLB: { fontSize: Math.round(symbolFont * 1.3) + 4, color: '#fff', fontWeight: '800', lineHeight: Math.round(symbolFont * 1.3) + 4, align: 'center', verticalAlign: 'middle' },
+              pctXLB: { fontSize: Math.round(pctFont * 1.05) + 2, color: '#fff', lineHeight: Math.round(pctFont * 1.05) + 2, align: 'center', verticalAlign: 'middle' },
+              symL: { fontSize: Math.max(9, symbolFont - 4), color: '#fff', fontWeight: 'bold', lineHeight: Math.max(10, symbolFont - 1), align: 'center', verticalAlign: 'middle' },
+              pctL: { fontSize: Math.max(7, pctFont - 4), color: '#fff', lineHeight: Math.max(8, pctFont - 1), align: 'center', verticalAlign: 'middle' },
+              symM: { fontSize: Math.max(7, symbolFont - 5), color: '#fff', fontWeight: 'bold', lineHeight: Math.max(8, symbolFont - 2), align: 'center', verticalAlign: 'middle' },
+              pctM: { fontSize: Math.max(7, pctFont - 3), color: '#fff', lineHeight: Math.max(8, pctFont - 1), align: 'center', verticalAlign: 'middle' },
+              symS: { fontSize: Math.max(6, symbolFont - 8), color: '#fff', fontWeight: 'bold', lineHeight: Math.max(7, symbolFont - 5), align: 'center', verticalAlign: 'middle' },
+              pctS: { fontSize: Math.max(6, pctFont - 6), color: '#fff', lineHeight: Math.max(7, pctFont - 4), align: 'center', verticalAlign: 'middle' }
+            }
+          }
+        });
+      });
+
+      const treeData = Array.from(bySector.entries()).map(([sector, children]) => {
+        const sortedChildren = children.slice().sort((a, b) => (b.value || 0) - (a.value || 0));
+        const totalValue = sortedChildren.reduce((sum, child) => sum + (child.value || 0), 0);
+        return {
+          name: sector,
+          value: totalValue,
+          children: sortedChildren
+        };
+      }).sort((a, b) => (b.value || 0) - (a.value || 0));
+
+      const flatData = treeData.flatMap(group => group.children);
+      const seriesData = groupMode === 'none' ? flatData : treeData;
+
+      const chart = echarts.getInstanceByDom(chartDom) || echarts.init(chartDom);
+      heatmapChart = chart;
+
+      chart.setOption({
+        tooltip: {
+          formatter: params => {
+            const d = params.data?.raw;
+            if (!d) return params.name;
+            const marketCapText = d.marketCap === null || d.marketCap === undefined
+              ? 'N/A'
+              : Number(d.marketCap).toLocaleString();
+            return `${d.symbol}<br/>Sector: ${d.sector || 'Other'}<br/>MarketCap: ${marketCapText}<br/>Change: ${formatPct(Number(d.changePct ?? 0))}`;
+          }
+        },
+        series: [
+          {
+            type: 'treemap',
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+            roam: false,
+            visibleMin: 0,
+            squareRatio: 1.25,
+            sort: 'desc',
+            breadcrumb: { show: false },
+            upperLabel: {
+              show: groupMode !== 'none',
+              height: 18,
+              color: '#111827',
+              fontSize: 12,
+              backgroundColor: '#ffffff',
+              padding: [2, 6]
+            },
+            nodeClick: false,
+            itemStyle: {
+              borderWidth: 0,
+              borderColor: 'transparent',
+              gapWidth: 0
+            },
+            data: seriesData,
+            leafDepth: groupMode === 'none' ? 1 : 2,
+            label: {
+              show: true,
+              position: 'inside',
+              align: 'center',
+              verticalAlign: 'middle',
+              distance: 0,
+              padding: 0,
+              overflow: 'truncate'
+            },
+            labelLayout: params => {
+              if (!params || !params.rect || !params.data || !params.data.raw) return {};
+
+              const w = params.rect.width || 0;
+              const h = params.rect.height || 0;
+              const area = w * h;
+              const minSide = Math.min(w, h);
+              let finalRank = 0;
+
+              if (minSide >= 86 && area >= 12000) finalRank = 4;
+              else if (minSide >= 64 && area >= 7000) finalRank = 3;
+              else if (minSide >= 20 && area >= 900) finalRank = 2;
+              else if (minSide >= 14 && area >= 220) finalRank = 1;
+
+              const hasLogo = !!(params.data.raw && params.data.raw.logoUrl);
+              // compute sizes from market cap (same formula as render loop)
+              const value = Number(params.data.value || params.data.raw?.marketCap || 0);
+              const valueRatio = Math.max(0, Math.min(1, (value || 0) / (maxValue || 1)));
+              const curve = Math.sqrt(valueRatio || 0);
+              const symbolFont = Math.round(10 + 14 * curve);
+              const pctFont = Math.round(9 + 10 * curve);
+              const logoXLSize = Math.round(18 + 18 * curve);
+              const logoXLBSize = Math.round(logoXLSize * 1.22);
+              const logoLSize = Math.round(14 + 10 * curve);
+              const logoMSize = Math.round(12 + 10 * curve);
+              const logoSSize = Math.round(9 + 6 * curve);
+
+              // approximate line heights used in rich styles
+              const gapH = 3; // unified gap lineHeight
+              const symXL_h = Math.max(18, Math.round(symbolFont * 1.15) + 2);
+              const pctXL_h = Math.max(12, Math.round(pctFont * 0.95) + 1);
+              const symXLB_h = Math.round(symbolFont * 1.3) + 4;
+              const pctXLB_h = Math.round(pctFont * 1.05) + 2;
+              const symL_h = Math.max(10, symbolFont - 1);
+              const pctL_h = Math.max(8, pctFont - 1);
+              const pctM_h = Math.max(8, pctFont - 1);
+              const symS_h = Math.max(7, symbolFont - 5);
+
+              // choose label text; let ECharts center the multiline block within the full rect
+              const isXLBig = finalRank >= 4 && area >= 22000 && minSide >= 120;
+              let labelText = '';
+              if (finalRank >= 4) {
+                labelText = isXLBig ? (params.data._labelXLargeBig || params.data._labelXLarge) : params.data._labelXLarge;
+              } else if (finalRank === 3) {
+                labelText = params.data._labelLarge;
+              } else if (finalRank === 2) {
+                labelText = params.data._labelMedium;
+              } else if (finalRank === 1) {
+                labelText = params.data._labelSmall;
+              } else {
+                labelText = params.data._labelTiny;
+              }
+
+              return {
+                labelText: labelText || '',
+                x: params.rect.x,
+                y: params.rect.y,
+                width: params.rect.width,
+                height: params.rect.height,
+                align: 'center',
+                verticalAlign: 'middle'
+              };
+            },
+            levels: [
+              {
+                itemStyle: {
+                  borderColor: '#ffffff',
+                  borderWidth: 1,
+                  gapWidth: 1
+                }
+              },
+              {
+                colorSaturation: [0.35, 0.75],
+                itemStyle: {
+                  borderColor: '#ffffff',
+                  borderWidth: 1,
+                  gapWidth: 1
+                }
+              }
+            ]
+          }
+        ]
+      });
+
+      chart.off('click');
+      chart.on('click', params => {
+        const symbol = params?.data?.raw?.symbol;
+        if (!symbol) return;
+        const input = document.getElementById('mainSymbol');
+        input.value = symbol;
+        refreshRightPanel();
+      });
+
+      window.addEventListener('resize', () => chart.resize(), { once: true });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('mainSymbol').value = 'AAPL';
+      document.getElementById('trendRange').value = '730d_1h';
+      document.getElementById('trendTimezone').value = 'us';
+      testHeatmap();
+      refreshRightPanel();
+      window.addEventListener('resize', () => {
+        heatmapChart?.resize();
+        renderTrendD3();
+      });
+    });
+  </script>
+</body>
+</html>

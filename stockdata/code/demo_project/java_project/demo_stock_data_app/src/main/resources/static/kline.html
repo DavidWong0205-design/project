@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>K線圖 - Demo Stock Frontend</title>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+    /* 讓 Market Info 區塊與主頁一致 */
+    .right-panel .panel:first-child {
+      min-height: 180px;
+      max-height: 320px;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+      border-radius: 0;
+      margin-bottom: 10px;
+      display: flex;
+      flex-direction: column;
+    }
+    #marketInfo {
+      padding: 12px;
+      min-height: 120px;
+      background: #fff;
+      border-radius: 0;
+      box-shadow: none;
+      overflow: auto;
+    }
+
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; margin: 0; background: #eef2f7; color: #111827; }
+    h1 { margin: 0; font-size: 20px; }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 0;
+      padding: 8px;
+      background: #ffffff;
+      border-radius: 0;
+    }
+    input, button, select { padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px; }
+    button { background: #111827; color: #ffffff; cursor: pointer; }
+    .dashboard {
+      display: grid;
+      grid-template-columns: minmax(0, 80fr) minmax(260px, 20fr);
+      gap: 0;
+      align-items: stretch;
+      height: calc(100vh - 52px);
+      min-height: 520px;
+    }
+    .panel {
+      background: #ffffff;
+      border-radius: 0;
+      overflow: hidden;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-title {
+      padding: 8px 10px;
+      font-size: 14px;
+      font-weight: 700;
+      border-bottom: 1px solid #e5e7eb;
+      background: #f8fafc;
+    }
+    .left-panel { display: flex; flex-direction: column; }
+    .hm-wrap { flex: 1; min-height: 0; height: 100%; }
+    #klineChart { width: 100%; height: 100%; min-height: 360px; position: relative; }
+    .d3-tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(17, 24, 39, 0.92);
+      color: #ffffff;
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.3;
+      transform: translate(-50%, -115%);
+      white-space: nowrap;
+      z-index: 3;
+      display: none;
+    }
+    .d3-axis path,
+    .d3-axis line {
+      stroke: #9ca3af;
+      shape-rendering: crispEdges;
+    }
+    .d3-axis text {
+      fill: #6b7280;
+      font-size: 11px;
+    }
+    .right-panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .card-body { flex: 1; min-height: 0; }
+    #marketInfo { padding: 12px; overflow: auto; height: 100%; }
+    .stock-head { display: flex; align-items: center; gap: 10px; }
+    .stock-logo {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      object-fit: contain;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      flex: 0 0 38px;
+    }
+    .stock-name { font-size: 18px; font-weight: 800; line-height: 1.2; color: #111827; }
+    .stock-company { margin-top: 6px; font-size: 14px; color: #1f2937; font-weight: 600; }
+    .stock-meta { margin-top: 8px; font-size: 13px; color: #4b5563; }
+    .stock-price-row {
+      margin-top: 12px;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .stock-price { font-size: 28px; font-weight: 800; color: #111827; }
+    .stock-change, .stock-change-pct { font-size: 16px; font-weight: 700; }
+    .up { color: #16a34a; }
+    .down { color: #dc2626; }
+    .flat { color: #6b7280; }
+  </style>
+</head>
+<body>
+
+  <div class="toolbar">
+    <a href="/index.html"><img src="/img/home.png" id="homeIcon" style="width:32px;height:32px;margin-right:8px;cursor:pointer;vertical-align:middle;" alt="Home" /></a>
+    <h1>Market Heatmap Dashboard</h1>
+    <input id="mainSymbol" value="AAPL" placeholder="Symbol" />
+    <button id="updateBtn">Update</button>
+  </div>
+
+
+
+  <div class="dashboard">
+    <section class="panel left-panel" id="klineChartPanel" style="display:flex; height:100%;">
+      <div style="padding: 8px 10px 0 10px; display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; font-size: 14px; min-width:0;">
+        <label for="klineInterval" style="font-size:13px;">Time Range:</label>
+        <select id="klineInterval" style="font-size:13px; padding:2px 4px; height:24px; min-width:48px; max-width:90px;">
+          <option value="5m">5m</option>
+          <option value="15m">15m</option>
+          <option value="30m">30m</option>
+          <option value="90m">90m</option>
+          <option value="1h" selected>1h</option>
+          <option value="1d">1d</option>
+          <option value="1mo">1mo</option>
+          <option value="3mo">3mo</option>
+        </select>
+      </div>
+      <div class="hm-wrap" style="height:100%; width:100%;">
+        <div id="klineChart" style="height:100%; width:100%;"></div>
+      </div>
+    </section>
+    <section class="right-panel">
+      <article class="panel">
+        <div class="panel-title">Market Info</div>
+        <div class="card-body" id="marketInfo"></div>
+      </article>
+      <article class="panel">
+        <div class="panel-title">Largest Companies by Marketcap</div>
+        <div class="card-body" id="topMarketcapTable"></div>
+      </article>
+    </section>
+  </div>
+
+  <script>
+    // 右側 Market Info 複製 index.html 的載入邏輯
+    async function getJson(url) {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    }
+    function getFirst(data, keys, fallback = null) {
+      for (const key of keys) {
+        if (data && data[key] !== undefined && data[key] !== null && data[key] !== '') return data[key];
+      }
+      return fallback;
+    }
+    function fmtNumber(value, digits = 2) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return 'N/A';
+      return n.toFixed(digits);
+    }
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+    function trendClass(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n === 0) return 'flat';
+      return n > 0 ? 'up' : 'down';
+    }
+    async function loadMarketInfo(symbol) {
+      const container = document.getElementById('marketInfo');
+      container.innerHTML = 'Loading...';
+      try {
+        const [data, stockInfoResp] = await Promise.all([
+          getJson(`/stock/realtime?symbol=${encodeURIComponent(symbol)}`),
+          getJson(`/stock/company-info?symbol=${encodeURIComponent(symbol)}`).catch(() => null)
+        ]);
+        const stockInfo = stockInfoResp || data?.stock_info || data?.stockInfo || {};
+        const symbolValue = getFirst(data, ['symbol'], symbol);
+        const companyName = getFirst(stockInfo, ['company_name', 'companyName'], '-');
+        const sector = getFirst(stockInfo, ['sector'], getFirst(data, ['sector'], 'N/A'));
+        const industry = getFirst(stockInfo, ['industry'], getFirst(data, ['industry'], 'N/A'));
+        const regularMarketPrice = getFirst(data, ['regularMarketPrice', 'price', 'currentPrice']);
+        const regularMarketChange = getFirst(data, ['regularMarketChange', 'change']);
+        const regularMarketChangePercent = getFirst(data, ['regularMarketChangePercent', 'changePercent']);
+        const logoSrc = `/assets/logo/${encodeURIComponent(symbolValue)}`;
+        const changeClass = trendClass(regularMarketChange);
+        const changePctClass = trendClass(regularMarketChangePercent);
+        container.innerHTML = `
+          <div class="stock-head" style="cursor:pointer" id="stockHeadClickable">
+            <a href="/kline.html"><img class="stock-logo" src="${logoSrc}" alt="${escapeHtml(symbolValue)} logo" onerror="this.style.display='none'" /></a>
+            <div class="stock-name">${escapeHtml(symbolValue)}</div>
+          </div>
+          <div class="stock-company">${escapeHtml(String(companyName))}</div>
+          <div class="stock-meta">${escapeHtml(String(sector))} · ${escapeHtml(String(industry))}</div>
+          <div class="stock-price-row">
+            <div class="stock-price">${fmtNumber(regularMarketPrice)} US</div>
+            <div class="stock-change ${changeClass}">${fmtNumber(regularMarketChange)}</div>
+            <div class="stock-change-pct ${changePctClass}">${fmtNumber(regularMarketChangePercent)}%</div>
+          </div>
+        `;
+      } catch (e) {
+        container.textContent = e.message;
+      }
+    }
+
+    // K線圖初始化，支援 interval
+    async function renderKlineChart() {
+      const symbol = document.getElementById('mainSymbol').value.trim() || 'AAPL';
+      const interval = document.getElementById('klineInterval').value || '1h';
+      const resp = await fetch(`/stock/candlesticks?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}`);
+      const data = await resp.json();
+      const container = document.getElementById('klineChart');
+      container.innerHTML = '';
+      console.log('[K線] API 回傳', data);
+        // 判斷有無資料：array 格式或物件格式
+        let hasData = false;
+        if (Array.isArray(data)) {
+          hasData = data.length > 0;
+        } else if (data && Array.isArray(data.open) && data.open.length > 0) {
+          hasData = true;
+        }
+      if (!hasData) {
+        container.innerHTML = '<div style="color:#888;padding:16px;">No K線資料 (API 無資料)</div>';
+        return;
+      }
+      // 解析資料，支援 {open:[], high:[], low:[], close:[], timestamp:[]} 格式
+      let candles = [];
+      if (Array.isArray(data.open) && Array.isArray(data.high) && Array.isArray(data.low) && Array.isArray(data.close)) {
+        // timestamps (複數) 才是正確欄位
+        const tsArr = Array.isArray(data.timestamps) ? data.timestamps : (Array.isArray(data.timestamp) ? data.timestamp : []);
+        const len = Math.min(data.open.length, data.high.length, data.low.length, data.close.length, tsArr.length);
+        for (let i = 0; i < len; i++) {
+          candles.push({
+            date: tsArr.length ? new Date(tsArr[i] * 1000) : null,
+            open: +data.open[i],
+            high: +data.high[i],
+            low: +data.low[i],
+            close: +data.close[i]
+          });
+        }
+      } else if (Array.isArray(data)) {
+        candles = data.map(d => ({
+          date: d.date ? new Date(d.date) : null,
+          open: +d.open,
+          high: +d.high,
+          low: +d.low,
+          close: +d.close
+        }));
+      }
+      candles = candles.filter(d => d.date && isFinite(d.open) && isFinite(d.high) && isFinite(d.low) && isFinite(d.close));
+      console.log('[K線] 解析後 candle 數', candles.length, candles);
+      if (!candles.length) {
+        container.innerHTML = '<div style=\"color:#888;padding:16px;\">No K線資料 (資料格式錯誤或無有效資料)</div>';
+        return;
+      }
+      // D3 K線圖
+      const margin = { top: 16, right: 24, bottom: 32, left: 56 };
+      const width = container.clientWidth || 600;
+      const height = container.clientHeight || 400;
+      const innerWidth = Math.max(60, width - margin.left - margin.right);
+      const innerHeight = Math.max(60, height - margin.top - margin.bottom);
+      const svg = d3.select(container)
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height);
+      const g = svg.append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+      // X/Y scale
+      const x = d3.scaleBand()
+        .domain(candles.map(d => d.date))
+        .range([0, innerWidth])
+        .padding(0.3);
+      const y = d3.scaleLinear()
+        .domain([
+          d3.min(candles, d => d.low),
+          d3.max(candles, d => d.high)
+        ])
+        .nice()
+        .range([innerHeight, 0]);
+      let xCurrent = x.copy();
+      // 畫圖函數
+      function redraw() {
+        g.selectAll('.d3-axis.x').remove();
+        g.selectAll('.d3-axis.y').remove();
+        // 只取目前顯示的資料
+        const shownDates = xCurrent.domain();
+        const shownCandles = candles.filter(d => shownDates.some(dt => dt.getTime() === d.date.getTime()));
+        // 依據顯示資料重算 y 軸
+        const yLocal = d3.scaleLinear()
+          .domain([
+            d3.min(shownCandles, d => d.low),
+            d3.max(shownCandles, d => d.high)
+          ])
+          .nice()
+          .range([innerHeight, 0]);
+        g.append('g')
+          .attr('class', 'd3-axis x')
+          .attr('transform', `translate(0,${innerHeight})`)
+          .call(d3.axisBottom(xCurrent).tickFormat(d3.timeFormat('%m-%d %H:%M')).tickValues(xCurrent.domain().filter((d,i,a)=>i%Math.ceil(a.length/7)===0)));
+        g.append('g')
+          .attr('class', 'd3-axis y')
+          .call(d3.axisLeft(yLocal).ticks(7));
+        g.selectAll('g.candle').remove();
+        // 計算最大寬度，最小2px，最大60px
+        const dynamicWidth = Math.max(2, Math.min(60, xCurrent.bandwidth()));
+        g.selectAll('g.candle')
+          .data(shownCandles)
+          .enter()
+          .append('g')
+          .attr('class', 'candle')
+          .each(function(d) {
+            const up = d.close >= d.open;
+            d3.select(this)
+              .append('line')
+              .attr('x1', xCurrent(d.date) + dynamicWidth/2)
+              .attr('x2', xCurrent(d.date) + dynamicWidth/2)
+              .attr('y1', yLocal(d.high))
+              .attr('y2', yLocal(d.low))
+              .attr('stroke', up ? '#16a34a' : '#dc2626')
+              .attr('stroke-width', Math.max(1.2, dynamicWidth * 0.18));
+            d3.select(this)
+              .append('rect')
+              .attr('x', xCurrent(d.date))
+              .attr('y', yLocal(Math.max(d.open, d.close)))
+              .attr('width', dynamicWidth)
+              .attr('height', Math.max(1, Math.abs(yLocal(d.open) - yLocal(d.close))))
+              .attr('fill', up ? '#16a34a' : '#dc2626');
+          });
+      }
+      // 初始繪圖
+      g.append('g')
+        .attr('class', 'd3-axis x')
+        .attr('transform', `translate(0,${innerHeight})`)
+        .call(d3.axisBottom(xCurrent).tickFormat(d3.timeFormat('%m-%d %H:%M')).tickValues(xCurrent.domain().filter((d,i,a)=>i%Math.ceil(a.length/7)===0)));
+      g.append('g')
+        .attr('class', 'd3-axis y')
+        .call(d3.axisLeft(y).ticks(7));
+      redraw();
+      // Zoom 行為
+      const zoom = d3.zoom()
+        .scaleExtent([1, 100])
+        .translateExtent([[0, 0], [innerWidth, innerHeight]])
+        .extent([[0, 0], [innerWidth, innerHeight]])
+        .on('zoom', (event) => {
+          const t = event.transform;
+          const domain = x.domain();
+          const n = domain.length;
+          const k = t.k;
+          // 平滑計算 start/end，允許小數位移
+          const visible = Math.max(10, Math.floor(n / k));
+          let startF = -t.x / (innerWidth / n);
+          startF = Math.max(0, Math.min(n - visible, startF));
+          let endF = startF + visible;
+          // 取最接近的整數index範圍，slice時向下取整
+          let start = Math.floor(startF);
+          let end = Math.ceil(endF);
+          start = Math.max(0, Math.min(n - 1, start));
+          end = Math.max(start + 1, Math.min(n, end));
+          xCurrent = d3.scaleBand()
+            .domain(domain.slice(start, end))
+            .range([0, innerWidth])
+            .padding(0.3);
+          redraw();
+        });
+      svg.call(zoom);
+      // Tooltip
+      const tooltip = d3.select(container)
+        .append('div')
+        .attr('class', 'd3-tooltip');
+      svg.on('mousemove', function(event) {
+        const [mx, my] = d3.pointer(event, g.node());
+        // 找到最接近滑鼠的 K 棒 index
+        let idx = -1;
+        let minDist = Infinity;
+        const domain = xCurrent.domain();
+        domain.forEach((date, i) => {
+          const cx = xCurrent(date) + xCurrent.bandwidth() / 2;
+          const dist = Math.abs(mx - cx);
+          if (dist < minDist) { minDist = dist; idx = i; }
+        });
+        if (idx < 0 || idx >= domain.length) { tooltip.style('display', 'none'); return; }
+        const d = candles.find(c => c.date.getTime() === domain[idx].getTime());
+        if (!d) { tooltip.style('display', 'none'); return; }
+        tooltip.style('display', 'block')
+          .style('left', (xCurrent(d.date) + margin.left + xCurrent.bandwidth()/2) + 'px')
+          .style('top', (y(d.high) + margin.top - 10) + 'px')
+          .html(
+            `時間: ${d3.timeFormat('%Y-%m-%d %H:%M')(d.date)}<br>` +
+            `O: ${d.open.toFixed(3)}<br>` +
+            `H: ${d.high.toFixed(3)}<br>` +
+            `L: ${d.low.toFixed(3)}<br>` +
+            `C: ${d.close.toFixed(3)}`
+          );
+      }).on('mouseleave', function() {
+        tooltip.style('display', 'none');
+      });
+    }
+
+    // 載入市值前十股票排行榜
+    async function loadTopMarketcapTable() {
+    const container = document.getElementById('topMarketcapTable');
+    container.innerHTML = 'Loading...';
+    try {
+      // 取市值最高前10名
+      const data = await getJson('/stock/top-marketcap');
+      if (!Array.isArray(data) || !data.length) {
+        container.innerHTML = '<div style="color:#888;">No data</div>';
+        return;
+      }
+      let html = `<table style="width:100%;border-collapse:collapse;font-size:15px;">
+        <thead><tr style="border-bottom:1px solid #e5e7eb;">
+          <th style="text-align:left;padding:4px 2px;">商品</th>
+          <th style="text-align:right;padding:4px 2px;">最新價</th>
+          <th style="text-align:right;padding:4px 2px;">漲跌</th>
+          <th style="text-align:right;padding:4px 2px;">漲跌%</th>
+        </tr></thead><tbody>`;
+      const top10 = data.slice(0, 10);
+      for (const row of top10) {
+        const logo = `/assets/logo/${encodeURIComponent(row.symbol)}`;
+        const price = Number(row.regularMarketPrice).toFixed(2);
+        const change = Number(row.regularMarketChange).toFixed(2);
+        const pct = Number(row.regularMarketChangePercent).toFixed(2);
+        const updownClass = Number(row.regularMarketChange) > 0 ? 'up' : (Number(row.regularMarketChange) < 0 ? 'down' : 'flat');
+        html += `<tr style="border-bottom:1px solid #f3f4f6;">
+          <td style="padding:4px 2px;display:flex;align-items:center;gap:6px;">
+            <img src="${logo}" alt="${row.symbol}" style="width:22px;height:22px;border-radius:50%;background:#fff;border:1px solid #e5e7eb;object-fit:contain;cursor:pointer;" onclick="selectSymbol('${row.symbol}')">
+            <span style="font-weight:700;color:#111827;cursor:pointer;" onclick="selectSymbol('${row.symbol}')">${row.symbol}</span>
+            <span style="font-size:10px;color:#3b82f6;vertical-align:middle;">●</span>
+          </td>
+          <td style="text-align:right;padding:4px 2px;">${price}</td>
+          <td style="text-align:right;padding:4px 2px;"><span class="${updownClass}">${change}</span></td>
+          <td style="text-align:right;padding:4px 2px;"><span class="${updownClass}">${pct}%</span></td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+      container.innerHTML = html;
+    } catch (e) {
+      container.innerHTML = `<div style='color:#dc2626;'>${e.message}</div>`;
+    }
+    // 點擊排行榜股票時切換主圖
+    window.selectSymbol = function(symbol) {
+      document.getElementById('mainSymbol').value = symbol;
+      refreshKlinePage();
+    }
+  }
+
+    // 綁定事件與初始化
+    async function refreshKlinePage() {
+      const symbol = document.getElementById('mainSymbol').value.trim() || 'AAPL';
+      await Promise.all([
+        loadMarketInfo(symbol),
+        renderKlineChart(),
+        loadTopMarketcapTable()
+      ]);
+    }
+    window.onload = () => {
+      document.getElementById('klineInterval').onchange = renderKlineChart;
+      document.getElementById('mainSymbol').onchange = refreshKlinePage;
+      document.getElementById('updateBtn').onclick = refreshKlinePage;
+      refreshKlinePage();
+    };
+  </script>
+</body>
+</html>

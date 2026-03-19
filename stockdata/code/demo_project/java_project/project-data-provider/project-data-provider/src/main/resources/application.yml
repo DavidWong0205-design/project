@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/bootcamp2512
+    username: postgres
+    password: admin1234
+    driver-class-name: org.postgresql.Driver
+server:
+  port: 8080
+    
